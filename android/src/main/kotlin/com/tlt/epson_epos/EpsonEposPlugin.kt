@@ -31,6 +31,7 @@ import kotlin.collections.ArrayList
 import android.util.Base64
 
 import java.lang.StringBuilder
+import com.epson.epos2.Epos2CallbackCode
 
 
 interface JSONConvertable {
@@ -112,10 +113,13 @@ class EpsonEposPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     private val result: Result = result
 
 
+
     override fun onPtrReceive(p0: Printer?, p1: Int, p2: PrinterStatusInfo?, p3: String?) {
+
       Log.d(logTag, "${p0?.status} p2 $p2 p3 $p3")
       disconnectPrinter()
     }
+
 
     override fun run() {
       Log.d(logTag, "Method Called: ${call.method}")
@@ -334,7 +338,21 @@ class EpsonEposPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             "Printing $target $series Connection: ${statusInfo?.connection} online: ${statusInfo?.online} cover: ${statusInfo?.coverOpen} Paper: ${statusInfo?.paper} ErrorSt: ${statusInfo?.errorStatus} Battery Level: ${statusInfo?.batteryLevel}"
           )
           mPrinter!!.sendData(Printer.PARAM_DEFAULT)
+          mPrinter!!.setReceiveEventListener { printer, code, printerStatusInfo, s ->
+
+            if (code == Epos2CallbackCode.CODE_SUCCESS) {
+              resp.success = true
+              resp.message = ""
+
+            } else {
+              resp.success = false
+              resp.message = getErrorMessageFor(code);
+            }
+            result.success(resp.toJSON())
+            disconnectPrinter();
+          }
           Log.d(logTag, "Printed $target $series")
+
         } catch (ex: Epos2Exception) {
           ex.printStackTrace()
           Log.e(logTag, "sendData Error" + ex.errorStatus, ex)
@@ -404,6 +422,7 @@ class EpsonEposPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     while (true) {
       try {
         mPrinter!!.disconnect()
+        mPrinter!!.clearCommandBuffer()
         mPrinter = null
         mTarget = null
         break
@@ -413,7 +432,7 @@ class EpsonEposPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         throw e
       }
     }
-    mPrinter!!.clearCommandBuffer()
+
   }
 
   private fun onGenerateCommand(command: Map<String, Any>) {
@@ -443,7 +462,7 @@ class EpsonEposPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             var posY: Int = command["posY"] as Int
             val bitmap: Bitmap? = convertBase64toBitmap(commandValue as String)
             Log.d(logTag, "appendBitmap: $width x $height $posX $posY bitmap $bitmap")
-            Printer.SETTING_PAPERWIDTH_80_0
+
             mPrinter!!.addImage(
               bitmap,
               posX,
@@ -481,6 +500,54 @@ class EpsonEposPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         }
         "addLineSpace" -> {
           mPrinter!!.addFeedLine(commandValue as Int)
+        }
+        "addTextSmooth" -> {
+          mPrinter!!.addTextSmooth(commandValue as Int  ?: Printer.PARAM_DEFAULT)
+        }
+        "addTextSize" -> {
+          try {
+            val width: Int = command["width"] as Int ?: Printer.PARAM_DEFAULT
+            val height: Int = command["height"] as Int ?: Printer.PARAM_DEFAULT
+            mPrinter!!.addTextSize(width,height);
+
+          } catch (e: Exception) {
+            Log.e(logTag, "onGenerateCommand Error" + e.localizedMessage)
+          }
+
+        }
+        "addTextStyle" -> {
+          try {
+            val reverse: Int = command["reverse"] as Int ?: Printer.PARAM_DEFAULT
+            val ul: Int = command["ul"] as Int ?: Printer.PARAM_DEFAULT
+            val em: Int = command["em"] as Int ?: Printer.PARAM_DEFAULT
+            val color: Int = command["color"] as Int ?: Printer.PARAM_DEFAULT
+            mPrinter!!.addTextStyle(reverse, ul, em, color);
+
+          } catch (e: Exception) {
+            Log.e(logTag, "onGenerateCommand Error" + e.localizedMessage)
+          }
+
+        }
+        "addPulse" -> {
+          try {
+            val drawer: Int = command["drawer"] as Int ?:1
+            val time: Int = command["time"] as Int
+            mPrinter!!.addPulse(drawer, time);
+
+          } catch (e: Exception) {
+            Log.e(logTag, "onGenerateCommand Error" + e.localizedMessage)
+          }
+
+        }
+        "addTextFont" -> {
+          try {
+            val font: Int = command["font"] as Int  ?: Printer.PARAM_DEFAULT
+            mPrinter!!.addTextFont(font);
+
+          } catch (e: Exception) {
+            Log.e(logTag, "onGenerateCommand Error" + e.localizedMessage)
+          }
+
         }
         "addTextAlign" -> {
           when (commandValue.toString()) {
@@ -597,7 +664,57 @@ class EpsonEposPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     }
     return errorMes
   }
-
+  private  fun getErrorMessageFor(code:Int) : String {
+    return  when(code) {
+      Epos2CallbackCode.CODE_ERR_TIMEOUT -> { "Timed Out"}
+      Epos2CallbackCode.CODE_ERR_NOT_FOUND -> { "Printer Not Found"}
+      Epos2CallbackCode.CODE_ERR_AUTORECOVER -> { "Auto recovering"}
+      Epos2CallbackCode.CODE_ERR_COVER_OPEN -> { "Cover open"}
+      Epos2CallbackCode.CODE_ERR_CUTTER -> { "Cutting error"}
+      Epos2CallbackCode.CODE_ERR_MECHANICAL -> { "Mechanical Error"}
+      Epos2CallbackCode.CODE_ERR_EMPTY -> { "Empty"}
+      Epos2CallbackCode.CODE_ERR_UNRECOVERABLE -> { "Unrecoverable Error"}
+      Epos2CallbackCode.CODE_ERR_SYSTEM -> { "System error"}
+      Epos2CallbackCode.CODE_ERR_PORT -> { "Port error"}
+      Epos2CallbackCode.CODE_ERR_INVALID_WINDOW -> { "Invalid window"}
+      Epos2CallbackCode.CODE_ERR_JOB_NOT_FOUND -> { "Job not found"}
+      Epos2CallbackCode.CODE_PRINTING -> { "printng"}
+      Epos2CallbackCode.CODE_ERR_SPOOLER -> { "Spooler error"}
+      Epos2CallbackCode.CODE_ERR_BATTERY_LOW -> { "Battery low"}
+      Epos2CallbackCode.CODE_ERR_TOO_MANY_REQUESTS -> { "Too many request"}
+      Epos2CallbackCode.CODE_ERR_REQUEST_ENTITY_TOO_LARGE -> { "Request entry too large"}
+      Epos2CallbackCode.CODE_CANCELED -> { "canceled"}
+      Epos2CallbackCode.CODE_ERR_NO_MICR_DATA -> { "No MICR data"}
+      Epos2CallbackCode.CODE_ERR_ILLEGAL_LENGTH -> { "Illegal Length"}
+      Epos2CallbackCode.CODE_ERR_NO_MAGNETIC_DATA -> { "No Magnetic data"}
+      Epos2CallbackCode.CODE_ERR_RECOGNITION -> { "Error recognition"}
+      Epos2CallbackCode.CODE_ERR_READ -> { "Read error"}
+      Epos2CallbackCode.CODE_ERR_NOISE_DETECTED -> { "Noise detected"}
+      Epos2CallbackCode.CODE_ERR_PAPER_JAM -> { "Paper Jam"}
+      Epos2CallbackCode.CODE_ERR_PAPER_PULLED_OUT -> { "Paper pulled out"}
+      Epos2CallbackCode.CODE_ERR_CANCEL_FAILED -> { "Cancel Failed"}
+      Epos2CallbackCode.CODE_ERR_PAPER_TYPE -> { "Paper Type"}
+      Epos2CallbackCode.CODE_ERR_WAIT_INSERTION -> { "Waiting Inserion"}
+      Epos2CallbackCode.CODE_ERR_ILLEGAL -> { "Illegal"}
+      Epos2CallbackCode.CODE_ERR_INSERTED -> { "Inserted"}
+      Epos2CallbackCode.CODE_ERR_WAIT_REMOVAL -> { "Waiting Removal "}
+      Epos2CallbackCode.CODE_ERR_DEVICE_BUSY -> { "Device busy"}
+      Epos2CallbackCode.CODE_ERR_IN_USE -> { "In use"}
+      Epos2CallbackCode.CODE_ERR_CONNECT -> { "Error connect"}
+      Epos2CallbackCode.CODE_ERR_DISCONNECT -> { "Error Disconnect"}
+      Epos2CallbackCode.CODE_ERR_MEMORY -> { "Error Memory"}
+      Epos2CallbackCode.CODE_ERR_PROCESSING -> { "Error In Processing"}
+      Epos2CallbackCode.CODE_ERR_PARAM -> { "Error Param"}
+      Epos2CallbackCode.CODE_ERR_GET_JSON_SIZE -> { "Error Get Json size"}
+      Epos2CallbackCode.CODE_ERR_DIFFERENT_MODEL -> { "Error Different model"}
+      Epos2CallbackCode.CODE_ERR_DIFFERENT_VERSION -> { "Error unsupported version"}
+      Epos2CallbackCode.CODE_ERR_DATA_CORRUPTED -> { "Error data corrupted"}
+      Epos2CallbackCode.CODE_ERR_IO -> { "IO error"}
+      Epos2CallbackCode.CODE_RETRY -> { "Retry"}
+      Epos2CallbackCode.CODE_ERR_FAILURE -> { "Error Failure"}
+      else -> "Unknown error"
+    }
+  }
   private fun getErrorMessage(errorKey: String, withNewLine: Boolean = true): String {
     var errorMes = when (errorKey) {
       "warn_receipt_near_end" -> {
